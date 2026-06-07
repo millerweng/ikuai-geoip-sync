@@ -5,6 +5,10 @@ data/snapshot.json
 data/state.json
 data/sync.log
 
+# Internal deployment docs (contain private server IPs / git URLs)
+部署说明.md
+UPGRADE.md
+
 # ---> Python
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -181,3 +185,4 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
+.gstack/

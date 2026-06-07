@@ -1,4 +1,5 @@
 .git
+.upstream
 .venv
 venv
 __pycache__

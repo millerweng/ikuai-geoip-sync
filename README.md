@@ -1,5 +1,7 @@
 # iKuai GeoIP Sync
 
+![Web UI Screenshot](./web-ui-screenshot.jpg)
+
 把中国指定城市的 IP 段定时同步到爱快路由器的 IP 分组（IP/MAC 分组管理）。
 
 ## 功能

@@ -18,7 +18,7 @@ class AppConfig:
     ikuai_url: str = "http://10.0.0.1"
     ikuai_user: str = "admin"
     ikuai_pass: str = ""
-    city_codes: list[str] = field(default_factory=lambda: ["210200"])
+    city_codes: list[str] = field(default_factory=list)
     max_per_group: int = 1000
     group_prefix: str = "GEO_"
     sync_cron: str = "0 4 11 * *"
@@ -34,7 +34,7 @@ def _from_env() -> AppConfig:
         ikuai_url=os.getenv("IKUAI_URL", "http://10.0.0.1"),
         ikuai_user=os.getenv("IKUAI_USER", "admin"),
         ikuai_pass=os.getenv("IKUAI_PASS", ""),
-        city_codes=[c.strip() for c in os.getenv("CITY_CODES", "210200").split(",") if c.strip()],
+        city_codes=[c.strip() for c in os.getenv("CITY_CODES", "").split(",") if c.strip()],
         max_per_group=int(os.getenv("MAX_PER_GROUP", "1000")),
         group_prefix=os.getenv("GROUP_PREFIX", "GEO_"),
         sync_cron=os.getenv("SYNC_CRON", "0 4 11 * *"),

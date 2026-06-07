@@ -1,5 +1,6 @@
 # Runtime data (secrets and generated state)
 data/config.json
+data/auth.json
 data/snapshot.json
 data/state.json
 data/sync.log

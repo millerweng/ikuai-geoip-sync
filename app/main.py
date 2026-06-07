@@ -11,11 +11,18 @@ from threading import Lock
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Cookie, Depends, FastAPI, HTTPException, Response
 from fastapi.staticfiles import StaticFiles
 
+from .auth import (
+    is_password_set,
+    make_session_token,
+    set_password,
+    validate_session_token,
+    verify_password,
+)
+from .cn_regions import CODE_TO_NAME, PROVINCES
 from .config import store as cfg_store
-from .cn_regions import PROVINCES, CODE_TO_NAME
 from .ikuai_client import IKuaiClient
 from .ip_fetcher import code_to_name
 from .lookup import load_snapshot, lookup as lookup_ip
@@ -31,19 +38,17 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/app/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 STATE_FILE = DATA_DIR / "state.json"
 LOG_FILE = DATA_DIR / "sync.log"
-ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "").strip()
+
+SESSION_COOKIE = "igs_session"
 
 _run_lock = Lock()
 _last_result: SyncResult | None = None
 scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
 
 
-def require_token(authorization: str | None = Header(default=None)) -> None:
-    if not ADMIN_TOKEN:
-        return
-    expected = f"Bearer {ADMIN_TOKEN}"
-    if authorization != expected:
-        raise HTTPException(status_code=401, detail="invalid or missing token")
+def require_auth(igs_session: str | None = Cookie(default=None)) -> None:
+    if not validate_session_token(igs_session or ""):
+        raise HTTPException(status_code=401, detail="not authenticated")
 
 
 def _load_state() -> None:
@@ -129,6 +134,62 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="iKuai GeoIP Sync", lifespan=lifespan)
 
 
+# ── Auth endpoints ────────────────────────────────────────────────────────────
+
+@app.get("/api/auth/status")
+def auth_status(igs_session: str | None = Cookie(default=None)) -> dict:
+    return {
+        "password_set": is_password_set(),
+        "authenticated": validate_session_token(igs_session or ""),
+    }
+
+
+@app.post("/api/auth/setup")
+def auth_setup(body: dict, response: Response) -> dict:
+    """Set the admin password for the first time (only allowed when no password is set yet)."""
+    if is_password_set():
+        raise HTTPException(status_code=403, detail="password already set, use /api/auth/change")
+    pw = (body.get("password") or "").strip()
+    try:
+        set_password(pw)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    token = make_session_token()
+    response.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="strict", max_age=86400 * 30)
+    return {"ok": True}
+
+
+@app.post("/api/auth/login")
+def auth_login(body: dict, response: Response) -> dict:
+    pw = (body.get("password") or "").strip()
+    if not verify_password(pw):
+        raise HTTPException(status_code=401, detail="invalid password")
+    token = make_session_token()
+    response.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="strict", max_age=86400 * 30)
+    return {"ok": True}
+
+
+@app.post("/api/auth/logout")
+def auth_logout(response: Response) -> dict:
+    response.delete_cookie(SESSION_COOKIE)
+    return {"ok": True}
+
+
+@app.post("/api/auth/change", dependencies=[Depends(require_auth)])
+def auth_change(body: dict, response: Response) -> dict:
+    """Change the admin password (requires current session)."""
+    pw = (body.get("password") or "").strip()
+    try:
+        set_password(pw)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    token = make_session_token()
+    response.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="strict", max_age=86400 * 30)
+    return {"ok": True}
+
+
+# ── App endpoints ─────────────────────────────────────────────────────────────
+
 @app.get("/api/status")
 def status() -> dict:
     cfg = cfg_store.get()
@@ -140,17 +201,15 @@ def status() -> dict:
         "next_run": next_run.isoformat() if next_run else None,
         "last_result": dataclasses.asdict(_last_result) if _last_result else None,
         "running": _run_lock.locked(),
-        "auth_required": bool(ADMIN_TOKEN),
     }
 
 
 @app.get("/api/regions")
 def list_regions() -> dict:
-    """返回省/市树供前端选择器使用。"""
     return {"provinces": PROVINCES}
 
 
-@app.post("/api/sync", dependencies=[Depends(require_token)])
+@app.post("/api/sync", dependencies=[Depends(require_auth)])
 def trigger_sync(payload: dict | None = None) -> dict:
     cities = (payload or {}).get("cities") if payload else None
     result = run_sync(cities)
@@ -162,7 +221,7 @@ def get_config() -> dict:
     return cfg_store.get().public_dict()
 
 
-@app.put("/api/config", dependencies=[Depends(require_token)])
+@app.put("/api/config", dependencies=[Depends(require_auth)])
 def update_config(patch: dict) -> dict:
     if "sync_cron" in patch and patch["sync_cron"]:
         try:
@@ -179,7 +238,6 @@ def update_config(patch: dict) -> dict:
 
 @app.get("/api/cities")
 def list_cities() -> dict:
-    """legacy：返回扁平 code→name 映射（前端不再用，但保留兼容）"""
     cfg = cfg_store.get()
     return {"available": CODE_TO_NAME, "selected": cfg.city_codes}
 

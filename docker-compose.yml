@@ -1,0 +1,15 @@
+services:
+  ikuai-geoip-sync:
+    build: .
+    image: ikuai-geoip-sync:latest
+    container_name: ikuai-geoip-sync
+    restart: always
+    ports:
+      - "${HOST_PORT:-8765}:8000"
+    env_file:
+      - .env
+    environment:
+      - DATA_DIR=/app/data
+      - TZ=Asia/Shanghai
+    volumes:
+      - ./data:/app/data
